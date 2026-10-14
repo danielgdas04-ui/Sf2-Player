@@ -29,12 +29,23 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Preparar Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Instalar componentes Android
+      - name: Instalar Android SDK
         run: |
-          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools" "ndk;27.2.12479018" "cmake;3.22.1"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "Erro: sdkmanager nao encontrado"
+            exit 1
+          fi
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          "$SDKMANAGER" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "platform-tools" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
 
       - name: Extrair projeto
         run: |
@@ -51,7 +62,7 @@ jobs:
           PROJECT_FILE="$(find extraido -name settings.gradle.kts -print -quit)"
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "Erro: settings.gradle.kts nao encontrado dentro do ZIP"
+            echo "Erro: settings.gradle.kts nao encontrado"
             exit 1
           fi
 
@@ -67,10 +78,6 @@ jobs:
           curl -fL --retry 3 \
             https://raw.githubusercontent.com/schellingb/TinySoundFont/master/tsf.h \
             -o "$CPP_DIR/tsf.h"
-
-          curl -fL --retry 3 \
-            https://raw.githubusercontent.com/schellingb/TinySoundFont/master/LICENSE \
-            -o "$CPP_DIR/TINYSOUNDFONT_LICENSE.txt"
 
           test -s "$CPP_DIR/tsf.h"
 
