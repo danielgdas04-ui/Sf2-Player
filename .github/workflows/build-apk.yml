@@ -1,4 +1,3 @@
-
 name: Build SF2 Player v0.9.3 MIDI Presets ARM64
 
 on:
@@ -30,10 +29,11 @@ jobs:
           set -e
 
           ZIP_FILE="SF2Player_v0.9.3_MIDI_Presets_ARM64.zip"
-          test -f "$ZIP_FILE" || {
-            echo "ERRO: ZIP não encontrado."
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERRO: ZIP do projeto não encontrado."
             exit 1
-          }
+          fi
 
           mkdir -p extracted
           unzip -q "$ZIP_FILE" -d extracted
@@ -42,14 +42,15 @@ jobs:
             \( -name settings.gradle.kts -o -name settings.gradle \) \
             -print -quit)"
 
-          test -n "$SETTINGS" || {
+          if [ -z "$SETTINGS" ]; then
             echo "ERRO: projeto Gradle não encontrado."
             exit 1
-          }
+          fi
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Projeto: $PROJECT_DIR"
+
+          echo "Projeto localizado em: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -73,17 +74,20 @@ jobs:
         shell: bash
         run: |
           set -e
+
           NDK="$ANDROID_HOME/ndk/27.2.12479018"
 
-          test -f "$NDK/build/cmake/android.toolchain.cmake" || {
+          if [ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]; then
             echo "ERRO: Android NDK não encontrado."
             exit 1
-          }
+          fi
 
           echo "ANDROID_NDK=$NDK" >> "$GITHUB_ENV"
 
       - name: Download FluidSynth Android source
         run: |
+          set -e
+
           git clone --depth 1 \
             https://github.com/VolcanoMobile/fluidsynth-android.git \
             fluidsynth-src
@@ -116,20 +120,19 @@ jobs:
           cmake --build fluidsynth-build --parallel 2
           cmake --install fluidsynth-build
 
-      - name: Copy FluidSynth library and headers
+      - name: Copy FluidSynth library, C++ runtime and headers
         shell: bash
         run: |
           set -e
 
           CPP_DIR="$PROJECT_DIR/app/src/main/cpp"
           JNI_DIR="$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a"
-
-          # Caminho esperado pelo CMake do SF2 Player
           INCLUDE_DIR="$CPP_DIR/fluidsynth/include"
 
           mkdir -p "$JNI_DIR"
           mkdir -p "$INCLUDE_DIR"
 
+          # Localiza a biblioteca FluidSynth compilada.
           LIBRARY="$(find -L fluidsynth-build fluidsynth-install \
             -type f -name 'libfluidsynth.so' -print -quit)"
 
@@ -139,7 +142,7 @@ jobs:
           fi
 
           if [ -z "$LIBRARY" ]; then
-            echo "ERRO: libfluidsynth não encontrada."
+            echo "ERRO: libfluidsynth.so não encontrada."
             find fluidsynth-build fluidsynth-install \
               -iname '*fluidsynth*' || true
             exit 1
@@ -147,7 +150,19 @@ jobs:
 
           cp "$LIBRARY" "$JNI_DIR/libfluidsynth.so"
 
-          # Localiza o cabeçalho principal fluidsynth.h
+          # Inclui o runtime C++ exigido por FluidSynth.
+          CXX_SHARED="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
+
+          if [ ! -f "$CXX_SHARED" ]; then
+            echo "ERRO: libc++_shared.so não encontrada."
+            find "$ANDROID_NDK" -type f \
+              -name libc++_shared.so || true
+            exit 1
+          fi
+
+          cp "$CXX_SHARED" "$JNI_DIR/libc++_shared.so"
+
+          # Localiza e copia os cabeçalhos do FluidSynth.
           HEADER_FILE="$(find fluidsynth-src fluidsynth-install \
             -type f -name fluidsynth.h -print -quit)"
 
@@ -162,33 +177,43 @@ jobs:
 
           cp "$HEADER_FILE" "$INCLUDE_DIR/fluidsynth.h"
 
-          # Copia os cabeçalhos complementares
+          # Copia os cabeçalhos auxiliares mantendo a estrutura.
           if [ -d "$HEADER_ROOT/fluidsynth" ]; then
             cp -R "$HEADER_ROOT/fluidsynth" "$INCLUDE_DIR/"
           fi
 
-          echo "Biblioteca:"
-          file "$JNI_DIR/libfluidsynth.so"
+          echo "Bibliotecas nativas copiadas:"
+          ls -lh "$JNI_DIR"
 
           echo "Cabeçalho principal:"
-          ls -l "$INCLUDE_DIR/fluidsynth.h"
+          ls -lh "$INCLUDE_DIR/fluidsynth.h"
 
-          echo "Arquivos de cabeçalho disponíveis:"
-          find "$INCLUDE_DIR" -maxdepth 2 -type f
+          file "$JNI_DIR/libfluidsynth.so"
+          file "$JNI_DIR/libc++_shared.so"
 
-      - name: Verify native include path
+      - name: Verify native files
         shell: bash
         run: |
           set -e
 
+          JNI_DIR="$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a"
           HEADER="$PROJECT_DIR/app/src/main/cpp/fluidsynth/include/fluidsynth.h"
 
+          for LIB in \
+            "$JNI_DIR/libfluidsynth.so" \
+            "$JNI_DIR/libc++_shared.so"; do
+            if [ ! -f "$LIB" ]; then
+              echo "ERRO: biblioteca ausente: $LIB"
+              exit 1
+            fi
+          done
+
           if [ ! -f "$HEADER" ]; then
-            echo "ERRO: o CMake ainda não terá acesso a fluidsynth.h."
+            echo "ERRO: fluidsynth.h não encontrado no caminho esperado."
             exit 1
           fi
 
-          echo "Cabeçalho encontrado: $HEADER"
+          echo "Arquivos nativos obrigatórios encontrados."
 
       - name: Build SF2 Player APK
         shell: bash
@@ -211,11 +236,12 @@ jobs:
           APK="$(find "$PROJECT_DIR/app/build/outputs/apk/debug" \
             -maxdepth 1 -type f -name '*.apk' -print -quit)"
 
-          test -n "$APK" || {
-            echo "ERRO: APK não gerado."
+          if [ -z "$APK" ]; then
+            echo "ERRO: APK não foi gerado."
             exit 1
-          }
+          fi
 
+          echo "APK gerado:"
           ls -lh "$APK"
 
       - name: Upload APK
