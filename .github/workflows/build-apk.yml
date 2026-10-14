@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_Com_Audio_Experimental_JVM17.zip'
+      - 'SF2Player_Com_Audio_Experimental_JVM17_FIX1.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -57,7 +57,7 @@ jobs:
             exit 1
           fi
 
-          unzip -o SF2Player_Com_Audio_Experimental_JVM17.zip -d extraido
+          unzip -o SF2Player_Com_Audio_Experimental_JVM17_FIX1.zip -d extraido
 
           PROJECT_FILE="$(find extraido -name settings.gradle.kts -print -quit)"
 
