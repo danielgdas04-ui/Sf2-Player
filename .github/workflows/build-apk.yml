@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_v0.8_FluidSynth.zip'
+      - 'SF2Player_v0.8.1_FluidSynth_Corrigido.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -49,10 +49,10 @@ jobs:
 
       - name: Extrair projeto
         run: |
-          ZIP="SF2Player_v0.8_FluidSynth.zip"
+          ZIP="SF2Player_v0.8.1_FluidSynth_Corrigido.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "Erro: arquivo ZIP nao encontrado na raiz do repositorio."
+            echo "Erro: arquivo $ZIP nao encontrado na raiz do repositorio"
             exit 1
           fi
 
@@ -62,24 +62,15 @@ jobs:
           PROJECT_FILE="$(find extracted -name settings.gradle.kts -print -quit)"
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "Erro: settings.gradle.kts nao encontrado."
+            echo "Erro: settings.gradle.kts nao encontrado"
             exit 1
           fi
 
-          PROJECT_DIR="$(dirname "$PROJECT_FILE")"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$(dirname "$PROJECT_FILE")" >> "$GITHUB_ENV"
 
-          echo "Projeto encontrado: $PROJECT_DIR"
-
-      - name: Baixar e compilar FluidSynth para Android
+      - name: Compilar FluidSynth para Android ARM64
         run: |
-          git clone --depth 1 \
-            https://github.com/FluidSynth/fluidsynth.git \
-            fluidsynth-src
-
-          mkdir -p \
-            "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a" \
-            "$PROJECT_DIR/app/src/main/cpp/fluidsynth/include"
+          git clone --depth 1 https://github.com/FluidSynth/fluidsynth.git fluidsynth-src
 
           cmake -S fluidsynth-src -B fluidsynth-build \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/27.2.12479018/build/cmake/android.toolchain.cmake" \
@@ -98,28 +89,28 @@ jobs:
             -Denable-dbus=0 \
             -Denable-network=0
 
-          cmake --build fluidsynth-build \
-            --config Release \
-            --parallel 2
-
+          cmake --build fluidsynth-build --config Release --parallel 2
           cmake --install fluidsynth-build
 
-          LIB="$(find fluidsynth-build fluidsynth-stage \
-            -name libfluidsynth.so -type f -print -quit)"
+          LIB="$(find fluidsynth-build fluidsynth-stage -name libfluidsynth.so -type f -print -quit)"
 
           if [ -z "$LIB" ]; then
-            echo "Erro: libfluidsynth.so nao foi gerada."
+            echo "Erro: libfluidsynth.so nao foi gerada"
             exit 1
           fi
 
-          cp "$LIB" \
-            "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a/libfluidsynth.so"
+          DEST="$PROJECT_DIR/app/src/main"
 
-          cp -R fluidsynth-src/include/fluidsynth \
-            "$PROJECT_DIR/app/src/main/cpp/fluidsynth/include/"
+          mkdir -p "$DEST/jniLibs/arm64-v8a"
+          mkdir -p "$DEST/cpp/fluidsynth/include"
 
-          test -f \
-            "$PROJECT_DIR/app/src/main/cpp/fluidsynth/include/fluidsynth/fluidsynth.h"
+          cp "$LIB" "$DEST/jniLibs/arm64-v8a/libfluidsynth.so"
+          cp -R fluidsynth-stage/include/. "$DEST/cpp/fluidsynth/include/"
+
+          if [ ! -f "$DEST/cpp/fluidsynth/include/fluidsynth.h" ]; then
+            echo "Erro: fluidsynth.h nao encontrado"
+            exit 1
+          fi
 
       - name: Compilar APK
         run: |
