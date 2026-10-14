@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_v0.3_Funcoes.zip.'
+      - 'SF2Player_v0.3_Funcoes.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -51,10 +51,10 @@ jobs:
 
       - name: Extrair projeto
         run: |
-          ZIP="SF2Player_v0.3_Funcoes.zip."
+          ZIP="SF2Player_v0.3_Funcoes.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "Erro: arquivo ZIP nao encontrado: $ZIP"
+            echo "Erro: ZIP nao encontrado: $ZIP"
             exit 1
           fi
 
@@ -68,21 +68,23 @@ jobs:
           fi
 
           PROJECT_DIR="$(dirname "$PROJECT_FILE")"
-          echo "Projeto encontrado em: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Preparar biblioteca TinySoundFont
+      - name: Preparar TinySoundFont
         run: |
-          mkdir -p "$PROJECT_DIR/app/src/main/cpp"
+          CPP_DIR="$PROJECT_DIR/app/src/main/cpp"
+          mkdir -p "$CPP_DIR"
+
+          if ! grep -q 'tsf.h' "$CPP_DIR/sf2native.c"; then
+            echo "Erro: sf2native.c nao inclui tsf.h como esperado"
+            exit 1
+          fi
 
           curl -fL --retry 3 \
             https://raw.githubusercontent.com/schellingb/TinySoundFont/master/tsf.h \
-            -o "$PROJECT_DIR/app/src/main/cpp/tsf.h"
+            -o "$CPP_DIR/tsf.h"
 
-          if [ ! -s "$PROJECT_DIR/app/src/main/cpp/tsf.h" ]; then
-            echo "Erro: nao foi possivel baixar tsf.h"
-            exit 1
-          fi
+          test -s "$CPP_DIR/tsf.h"
 
       - name: Compilar APK
         run: |
