@@ -1,10 +1,10 @@
-name: Build SF2 Player v0.9.1 MIDI Presets
+name: Build SF2 Player v0.9.2 MIDI Presets
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_v0.9.1_MIDI_Presets.zip'
+      - 'SF2Player_v0.9.2_MIDI_Presets_Corrigido.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -49,7 +49,7 @@ jobs:
 
       - name: Extrair projeto
         run: |
-          ZIP="SF2Player_v0.9.1_MIDI_Presets.zip"
+          ZIP="SF2Player_v0.9.2_MIDI_Presets_Corrigido.zip"
 
           if [ ! -f "$ZIP" ]; then
             echo "Erro: arquivo ZIP nao encontrado: $ZIP"
@@ -121,7 +121,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SF2Player-v0.9.1-MIDI-Presets-apk
+          name: SF2Player-v0.9.2-MIDI-Presets-apk
           path: extracted/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
