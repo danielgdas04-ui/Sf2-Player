@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_Com_Audio_Experimental.zip'
+      - 'SF2Player_Com_Audio_Experimental_JVM17.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -30,15 +30,19 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Aceitar licencas e instalar Android SDK
+      - name: Preparar Android SDK
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -f "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "Erro: sdkmanager nao encontrado"
+            exit 1
           fi
+
           yes | "$SDKMANAGER" --licenses || true
+
           "$SDKMANAGER" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
@@ -48,12 +52,22 @@ jobs:
 
       - name: Extrair projeto
         run: |
-          unzip -o SF2Player_Com_Audio_Experimental.zip -d extraido
-          PROJECT_DIR="$(dirname "$(find extraido -name settings.gradle.kts -print -quit)")"
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "Projeto Gradle nao encontrado no ZIP"
+          if [ ! -f "SF2Player_Com_Audio_Experimental_JVM17.zip" ]; then
+            echo "Erro: ZIP corrigido nao encontrado no repositorio"
             exit 1
           fi
+
+          unzip -o SF2Player_Com_Audio_Experimental_JVM17.zip -d extraido
+
+          PROJECT_FILE="$(find extraido -name settings.gradle.kts -print -quit)"
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "Erro: settings.gradle.kts nao encontrado dentro do ZIP"
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$PROJECT_FILE")"
+          echo "Projeto encontrado em: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Compilar APK
@@ -62,9 +76,9 @@ jobs:
           gradle assembleDebug --stacktrace
 
       - name: Publicar APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: SF2Player-apk-debug
           path: extraido/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-
