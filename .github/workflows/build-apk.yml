@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Baixar repositório
+      - name: Baixar repositorio
         uses: actions/checkout@v4
 
       - name: Preparar Java
@@ -25,24 +25,40 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Preparar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Aceitar licencas e instalar Android SDK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -f "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          fi
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "platform-tools" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
+
       - name: Extrair projeto
         run: |
           unzip -o SF2Player_Com_Audio_Experimental.zip -d extraido
-          find extraido -name settings.gradle.kts -print
           PROJECT_DIR="$(dirname "$(find extraido -name settings.gradle.kts -print -quit)")"
           if [ -z "$PROJECT_DIR" ]; then
-            echo "Não foi encontrado settings.gradle.kts no ZIP"
+            echo "Projeto Gradle nao encontrado no ZIP"
             exit 1
           fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Compilar APK
         run: |
           cd "$PROJECT_DIR"
-          gradle --version
           gradle assembleDebug --stacktrace
 
       - name: Publicar APK
@@ -51,3 +67,4 @@ jobs:
           name: SF2Player-apk-debug
           path: extraido/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
