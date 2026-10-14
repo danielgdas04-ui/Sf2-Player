@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_v0.4_Timbres_CORRIGIDO.zip'
+      - 'SF2Player_v0.5_Presets_Multifaixas.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -32,14 +32,11 @@ jobs:
       - name: Instalar Android SDK
         run: |
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
-
           if [ -z "$SDKMANAGER" ]; then
             echo "Erro: sdkmanager nao encontrado"
             exit 1
           fi
-
           yes | "$SDKMANAGER" --licenses || true
-
           "$SDKMANAGER" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
@@ -49,23 +46,18 @@ jobs:
 
       - name: Extrair projeto
         run: |
-          ZIP="SF2Player_v0.4_Timbres_CORRIGIDO.zip"
-
+          ZIP="SF2Player_v0.5_Presets_Multifaixas.zip"
           if [ ! -f "$ZIP" ]; then
             echo "Erro: ZIP nao encontrado: $ZIP"
             exit 1
           fi
-
           mkdir -p extraido
           unzip -o "$ZIP" -d extraido
-
           PROJECT_FILE="$(find extraido -name settings.gradle.kts -print -quit)"
-
           if [ -z "$PROJECT_FILE" ]; then
             echo "Erro: settings.gradle.kts nao encontrado"
             exit 1
           fi
-
           PROJECT_DIR="$(dirname "$PROJECT_FILE")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Projeto encontrado em: $PROJECT_DIR"
@@ -74,11 +66,9 @@ jobs:
         run: |
           CPP_DIR="$PROJECT_DIR/app/src/main/cpp"
           mkdir -p "$CPP_DIR"
-
           curl -fL --retry 3 \
             https://raw.githubusercontent.com/schellingb/TinySoundFont/master/tsf.h \
             -o "$CPP_DIR/tsf.h"
-
           test -s "$CPP_DIR/tsf.h"
 
       - name: Compilar APK
@@ -90,7 +80,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SF2Player-apk-debug
+          name: SF2Player-v0.5-apk-debug
           path: extraido/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
