@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_v0.3_Funcoes_CORRIGIDO.zip'
+      - 'SF2Player_v0.4_Timbres_CORRIGIDO.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -49,7 +49,7 @@ jobs:
 
       - name: Extrair projeto
         run: |
-          ZIP="SF2Player_v0.3_Funcoes_CORRIGIDO.zip"
+          ZIP="SF2Player_v0.4_Timbres_CORRIGIDO.zip"
 
           if [ ! -f "$ZIP" ]; then
             echo "Erro: ZIP nao encontrado: $ZIP"
