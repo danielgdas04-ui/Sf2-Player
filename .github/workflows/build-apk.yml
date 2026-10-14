@@ -1,10 +1,10 @@
-name: Compilar SF2 Player v0.6
+name: Build SF2 Player v0.8 FluidSynth
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_v0.6_MIDI_Qualidade.zip'
+      - 'SF2Player_v0.8_FluidSynth.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -18,18 +18,18 @@ jobs:
       - name: Baixar repositorio
         uses: actions/checkout@v4
 
-      - name: Preparar Java
+      - name: Configurar Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Preparar Gradle
+      - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Instalar Android SDK
+      - name: Instalar Android SDK e NDK
         run: |
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
 
@@ -49,38 +49,77 @@ jobs:
 
       - name: Extrair projeto
         run: |
-          ZIP="SF2Player_v0.6_MIDI_Qualidade.zip"
+          ZIP="SF2Player_v0.8_FluidSynth.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "Erro: ZIP nao encontrado: $ZIP"
+            echo "Erro: arquivo ZIP nao encontrado na raiz do repositorio."
             exit 1
           fi
 
-          mkdir -p extraido
-          unzip -o "$ZIP" -d extraido
+          mkdir -p extracted
+          unzip -o "$ZIP" -d extracted
 
-          PROJECT_FILE="$(find extraido -name settings.gradle.kts -print -quit)"
+          PROJECT_FILE="$(find extracted -name settings.gradle.kts -print -quit)"
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "Erro: settings.gradle.kts nao encontrado"
+            echo "Erro: settings.gradle.kts nao encontrado."
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$PROJECT_FILE")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Projeto encontrado em: $PROJECT_DIR"
+          echo "Projeto encontrado: $PROJECT_DIR"
 
-      - name: Preparar TinySoundFont
+      - name: Baixar e compilar FluidSynth para Android
         run: |
-          CPP_DIR="$PROJECT_DIR/app/src/main/cpp"
-          mkdir -p "$CPP_DIR"
+          git clone --depth 1 \
+            https://github.com/FluidSynth/fluidsynth.git \
+            fluidsynth-src
 
-          curl -fL --retry 3 \
-            https://raw.githubusercontent.com/schellingb/TinySoundFont/master/tsf.h \
-            -o "$CPP_DIR/tsf.h"
+          mkdir -p \
+            "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a" \
+            "$PROJECT_DIR/app/src/main/cpp/fluidsynth/include"
 
-          test -s "$CPP_DIR/tsf.h"
+          cmake -S fluidsynth-src -B fluidsynth-build \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/27.2.12479018/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_INSTALL_PREFIX="$PWD/fluidsynth-stage" \
+            -Denable-libsndfile=0 \
+            -Denable-pulseaudio=0 \
+            -Denable-alsa=0 \
+            -Denable-jack=0 \
+            -Denable-oss=0 \
+            -Denable-portaudio=0 \
+            -Denable-readline=0 \
+            -Denable-dbus=0 \
+            -Denable-network=0
+
+          cmake --build fluidsynth-build \
+            --config Release \
+            --parallel 2
+
+          cmake --install fluidsynth-build
+
+          LIB="$(find fluidsynth-build fluidsynth-stage \
+            -name libfluidsynth.so -type f -print -quit)"
+
+          if [ -z "$LIB" ]; then
+            echo "Erro: libfluidsynth.so nao foi gerada."
+            exit 1
+          fi
+
+          cp "$LIB" \
+            "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a/libfluidsynth.so"
+
+          cp -R fluidsynth-src/include/fluidsynth \
+            "$PROJECT_DIR/app/src/main/cpp/fluidsynth/include/"
+
+          test -f \
+            "$PROJECT_DIR/app/src/main/cpp/fluidsynth/include/fluidsynth/fluidsynth.h"
 
       - name: Compilar APK
         run: |
@@ -91,7 +130,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SF2Player-v0.6-apk-debug
-          path: extraido/**/app/build/outputs/apk/debug/*.apk
+          name: SF2Player-v0.8-FluidSynth-apk
+          path: extracted/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
