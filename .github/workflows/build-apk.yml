@@ -30,11 +30,10 @@ jobs:
           set -e
 
           ZIP_FILE="SF2Player_v0.9.3_MIDI_Presets_ARM64.zip"
-
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERRO: ZIP não encontrado na raiz do repositório."
+          test -f "$ZIP_FILE" || {
+            echo "ERRO: ZIP não encontrado."
             exit 1
-          fi
+          }
 
           mkdir -p extracted
           unzip -q "$ZIP_FILE" -d extracted
@@ -43,16 +42,14 @@ jobs:
             \( -name settings.gradle.kts -o -name settings.gradle \) \
             -print -quit)"
 
-          if [ -z "$SETTINGS" ]; then
-            echo "ERRO: arquivo settings.gradle não encontrado."
-            find extracted -maxdepth 5 -type f | head -100
+          test -n "$SETTINGS" || {
+            echo "ERRO: projeto Gradle não encontrado."
             exit 1
-          fi
+          }
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
-
-          echo "Projeto: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Projeto: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -67,7 +64,7 @@ jobs:
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
 
-      - name: Set up Gradle 9.5
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
@@ -76,13 +73,12 @@ jobs:
         shell: bash
         run: |
           set -e
-
           NDK="$ANDROID_HOME/ndk/27.2.12479018"
 
-          if [ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]; then
+          test -f "$NDK/build/cmake/android.toolchain.cmake" || {
             echo "ERRO: Android NDK não encontrado."
             exit 1
-          fi
+          }
 
           echo "ANDROID_NDK=$NDK" >> "$GITHUB_ENV"
 
@@ -125,8 +121,11 @@ jobs:
         run: |
           set -e
 
+          CPP_DIR="$PROJECT_DIR/app/src/main/cpp"
           JNI_DIR="$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a"
-          INCLUDE_DIR="$PROJECT_DIR/app/src/main/cpp/include/fluidsynth"
+
+          # Caminho esperado pelo CMake do SF2 Player
+          INCLUDE_DIR="$CPP_DIR/fluidsynth/include"
 
           mkdir -p "$JNI_DIR"
           mkdir -p "$INCLUDE_DIR"
@@ -140,7 +139,7 @@ jobs:
           fi
 
           if [ -z "$LIBRARY" ]; then
-            echo "ERRO: biblioteca FluidSynth não encontrada."
+            echo "ERRO: libfluidsynth não encontrada."
             find fluidsynth-build fluidsynth-install \
               -iname '*fluidsynth*' || true
             exit 1
@@ -148,17 +147,48 @@ jobs:
 
           cp "$LIBRARY" "$JNI_DIR/libfluidsynth.so"
 
-          HEADER_DIR="$(find fluidsynth-src -type d \
-            -path '*/include/fluidsynth' -print -quit)"
+          # Localiza o cabeçalho principal fluidsynth.h
+          HEADER_FILE="$(find fluidsynth-src fluidsynth-install \
+            -type f -name fluidsynth.h -print -quit)"
 
-          if [ -n "$HEADER_DIR" ]; then
-            cp -R "$HEADER_DIR/." "$INCLUDE_DIR/"
-          else
-            echo "ERRO: cabeçalhos do FluidSynth não encontrados."
+          if [ -z "$HEADER_FILE" ]; then
+            echo "ERRO: fluidsynth.h não encontrado."
+            find fluidsynth-src fluidsynth-install \
+              -iname '*fluidsynth*' || true
             exit 1
           fi
 
+          HEADER_ROOT="$(dirname "$HEADER_FILE")"
+
+          cp "$HEADER_FILE" "$INCLUDE_DIR/fluidsynth.h"
+
+          # Copia os cabeçalhos complementares
+          if [ -d "$HEADER_ROOT/fluidsynth" ]; then
+            cp -R "$HEADER_ROOT/fluidsynth" "$INCLUDE_DIR/"
+          fi
+
+          echo "Biblioteca:"
           file "$JNI_DIR/libfluidsynth.so"
+
+          echo "Cabeçalho principal:"
+          ls -l "$INCLUDE_DIR/fluidsynth.h"
+
+          echo "Arquivos de cabeçalho disponíveis:"
+          find "$INCLUDE_DIR" -maxdepth 2 -type f
+
+      - name: Verify native include path
+        shell: bash
+        run: |
+          set -e
+
+          HEADER="$PROJECT_DIR/app/src/main/cpp/fluidsynth/include/fluidsynth.h"
+
+          if [ ! -f "$HEADER" ]; then
+            echo "ERRO: o CMake ainda não terá acesso a fluidsynth.h."
+            exit 1
+          fi
+
+          echo "Cabeçalho encontrado: $HEADER"
 
       - name: Build SF2 Player APK
         shell: bash
@@ -166,13 +196,10 @@ jobs:
         run: |
           set -e
 
-          if [ -f "./gradlew" ]; then
+          if [ -f ./gradlew ]; then
             chmod +x ./gradlew
-            ./gradlew --version
             ./gradlew --no-daemon clean assembleDebug
           else
-            echo "Gradle Wrapper ausente; usando Gradle 9.5.0."
-            gradle --version
             gradle --no-daemon clean assembleDebug
           fi
 
@@ -184,12 +211,11 @@ jobs:
           APK="$(find "$PROJECT_DIR/app/build/outputs/apk/debug" \
             -maxdepth 1 -type f -name '*.apk' -print -quit)"
 
-          if [ -z "$APK" ]; then
-            echo "ERRO: APK não foi gerado."
+          test -n "$APK" || {
+            echo "ERRO: APK não gerado."
             exit 1
-          fi
+          }
 
-          echo "APK gerado:"
           ls -lh "$APK"
 
       - name: Upload APK
