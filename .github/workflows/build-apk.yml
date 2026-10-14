@@ -45,7 +45,7 @@ jobs:
 
           if [ -z "$SETTINGS" ]; then
             echo "ERRO: arquivo settings.gradle não encontrado."
-            find extracted -maxdepth 4 -type f | head -100
+            find extracted -maxdepth 5 -type f | head -100
             exit 1
           fi
 
@@ -53,9 +53,6 @@ jobs:
 
           echo "Projeto: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-          echo "Conteúdo da pasta do projeto:"
-          ls -la "$PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -70,15 +67,16 @@ jobs:
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
 
-      - name: Set up Gradle fallback
+      - name: Set up Gradle 9.5
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.6.1'
+          gradle-version: '9.5.0'
 
       - name: Configure Android NDK
         shell: bash
         run: |
           set -e
+
           NDK="$ANDROID_HOME/ndk/27.2.12479018"
 
           if [ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]; then
@@ -98,9 +96,6 @@ jobs:
         shell: bash
         run: |
           set -e
-
-          echo "Verificando a estrutura do projeto FluidSynth:"
-          ls -la fluidsynth-src
 
           cmake -S fluidsynth-src -B fluidsynth-build \
             -G Ninja \
@@ -159,7 +154,8 @@ jobs:
           if [ -n "$HEADER_DIR" ]; then
             cp -R "$HEADER_DIR/." "$INCLUDE_DIR/"
           else
-            echo "AVISO: diretório de cabeçalhos não encontrado."
+            echo "ERRO: cabeçalhos do FluidSynth não encontrados."
+            exit 1
           fi
 
           file "$JNI_DIR/libfluidsynth.so"
@@ -172,9 +168,11 @@ jobs:
 
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
+            ./gradlew --version
             ./gradlew --no-daemon clean assembleDebug
           else
-            echo "Gradle Wrapper ausente. Usando Gradle instalado."
+            echo "Gradle Wrapper ausente; usando Gradle 9.5.0."
+            gradle --version
             gradle --no-daemon clean assembleDebug
           fi
 
