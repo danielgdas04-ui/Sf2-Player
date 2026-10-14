@@ -1,10 +1,10 @@
-name: Compilar SF2 Player
+name: Compilar SF2 Player v0.6
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_v0.5_ROTACAO_CORRIGIDA.zip'
+      - 'SF2Player_v0.6_MIDI_Qualidade.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -32,6 +32,7 @@ jobs:
       - name: Instalar Android SDK
         run: |
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+
           if [ -z "$SDKMANAGER" ]; then
             echo "Erro: sdkmanager nao encontrado"
             exit 1
@@ -48,7 +49,7 @@ jobs:
 
       - name: Extrair projeto
         run: |
-          ZIP="SF2Player_v0.5_ROTACAO_CORRIGIDA.zip"
+          ZIP="SF2Player_v0.6_MIDI_Qualidade.zip"
 
           if [ ! -f "$ZIP" ]; then
             echo "Erro: ZIP nao encontrado: $ZIP"
@@ -67,6 +68,7 @@ jobs:
 
           PROJECT_DIR="$(dirname "$PROJECT_FILE")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
           echo "Projeto encontrado em: $PROJECT_DIR"
 
       - name: Preparar TinySoundFont
@@ -89,7 +91,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SF2Player-v0.5-rotacao-apk-debug
+          name: SF2Player-v0.6-apk-debug
           path: extraido/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
