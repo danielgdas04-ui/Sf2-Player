@@ -1,127 +1,121 @@
-name: Build SF2 Player v0.9.2 MIDI Presets
+
+name: Build SF2 Player v0.9.3 MIDI Presets ARM64
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     paths:
-      - 'SF2Player_v0.9.2_MIDI_Presets_Corrigido.zip'
+      - 'SF2Player_v0.9.3_MIDI_Presets_ARM64.zip'
       - '.github/workflows/build-apk.yml'
-
-permissions:
-  contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
-      - name: Baixar repositorio
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configurar Java
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            unzip \
+            cmake \
+            ninja-build \
+            build-essential \
+            pkg-config \
+            libtool \
+            autoconf \
+            automake \
+            gettext \
+            libglib2.0-dev \
+            libsndfile1-dev \
+            libpulse-dev \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libreadline-dev \
+            libsystemd-dev \
+            libdbus-1-dev \
+            liblilv-dev
+
+      - name: Extract SF2 Player project
+        run: |
+          test -f SF2Player_v0.9.3_MIDI_Presets_ARM64.zip
+          unzip -q SF2Player_v0.9.3_MIDI_Presets_ARM64.zip -d extracted
+          find extracted -name settings.gradle -o -name settings.gradle.kts
+          PROJECT_DIR="$(dirname "$(find extracted -name settings.gradle.kts -o -name settings.gradle | head -n 1)")"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Download FluidSynth source
+        run: |
+          git clone --depth 1 --branch v2.4.6 \
+            https://github.com/FluidSynth/fluidsynth.git fluidsynth-src
+
+      - name: Build FluidSynth for Android ARM64
+        run: |
+          mkdir -p "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a"
+          mkdir -p "$PROJECT_DIR/app/src/main/cpp/include"
+
+          cmake -S fluidsynth-src -B fluidsynth-build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -Denable-alsa=OFF \
+            -Denable-pulseaudio=OFF \
+            -Denable-jack=OFF \
+            -Denable-dbus=OFF \
+            -Denable-readline=OFF \
+            -Denable-ladspa=OFF \
+            -Denable-aufile=OFF \
+            -Denable-sdl2=OFF \
+            -Denable-oss=OFF \
+            -Denable-coreaudio=OFF \
+            -Denable-waveout=OFF \
+            -Denable-winmm=OFF \
+            -Denable-ipv6=OFF \
+            -Denable-pipewire=OFF \
+            -Denable-systemd=OFF \
+            -Denable-libsndfile=OFF \
+            -Denable-libinstpatch=OFF \
+            -Denable-pkgconfig=OFF \
+            -Denable-framework=OFF \
+            -DBUILD_SHARED_LIBS=ON
+
+          cmake --build fluidsynth-build --parallel 2
+
+          find fluidsynth-build -name 'libfluidsynth.so*' -type f -print
+          LIBRARY="$(find fluidsynth-build -name 'libfluidsynth.so*' -type f | head -n 1)"
+          test -n "$LIBRARY"
+          cp "$LIBRARY" "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a/libfluidsynth.so"
+
+          find fluidsynth-src -name fluidsynth.h -o -name synth.h
+          mkdir -p "$PROJECT_DIR/app/src/main/cpp/include/fluidsynth"
+          cp -R fluidsynth-src/include/fluidsynth/. \
+            "$PROJECT_DIR/app/src/main/cpp/include/fluidsynth/"
+
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Configurar Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Instalar Android SDK e NDK
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          chmod +x ./gradlew
+          ./gradlew --no-daemon clean assembleDebug
 
-          if [ -z "$SDKMANAGER" ]; then
-            echo "Erro: sdkmanager nao encontrado"
-            exit 1
-          fi
-
-          yes | "$SDKMANAGER" --licenses || true
-
-          "$SDKMANAGER" \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "platform-tools" \
-            "ndk;27.2.12479018" \
-            "cmake;3.22.1"
-
-      - name: Extrair projeto
-        run: |
-          ZIP="SF2Player_v0.9.2_MIDI_Presets_Corrigido.zip"
-
-          if [ ! -f "$ZIP" ]; then
-            echo "Erro: arquivo ZIP nao encontrado: $ZIP"
-            exit 1
-          fi
-
-          mkdir -p extracted
-          unzip -o "$ZIP" -d extracted
-
-          PROJECT_FILE="$(find extracted -name settings.gradle.kts -print -quit)"
-
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "Erro: settings.gradle.kts nao encontrado"
-            exit 1
-          fi
-
-          echo "PROJECT_DIR=$(dirname "$PROJECT_FILE")" >> "$GITHUB_ENV"
-
-      - name: Compilar FluidSynth para Android ARM64
-        run: |
-          git clone --depth 1 https://github.com/FluidSynth/fluidsynth.git fluidsynth-src
-
-          cmake -S fluidsynth-src -B fluidsynth-build \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/27.2.12479018/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-26 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_INSTALL_PREFIX="$PWD/fluidsynth-stage" \
-            -Denable-libsndfile=0 \
-            -Denable-pulseaudio=0 \
-            -Denable-alsa=0 \
-            -Denable-jack=0 \
-            -Denable-oss=0 \
-            -Denable-portaudio=0 \
-            -Denable-readline=0 \
-            -Denable-dbus=0 \
-            -Denable-network=0
-
-          cmake --build fluidsynth-build --config Release --parallel 2
-          cmake --install fluidsynth-build
-
-          LIB="$(find fluidsynth-build fluidsynth-stage -name libfluidsynth.so -type f -print -quit)"
-
-          if [ -z "$LIB" ]; then
-            echo "Erro: libfluidsynth.so nao foi gerada"
-            exit 1
-          fi
-
-          DEST="$PROJECT_DIR/app/src/main"
-
-          mkdir -p "$DEST/jniLibs/arm64-v8a"
-          mkdir -p "$DEST/cpp/fluidsynth/include"
-
-          cp "$LIB" "$DEST/jniLibs/arm64-v8a/libfluidsynth.so"
-          cp -R fluidsynth-stage/include/. "$DEST/cpp/fluidsynth/include/"
-
-          if [ ! -f "$DEST/cpp/fluidsynth/include/fluidsynth.h" ]; then
-            echo "Erro: fluidsynth.h nao encontrado"
-            exit 1
-          fi
-
-      - name: Compilar APK
-        run: |
-          cd "$PROJECT_DIR"
-          gradle --no-daemon assembleDebug --stacktrace
-
-      - name: Publicar APK
-        if: success()
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: SF2Player-v0.9.2-MIDI-Presets-apk
-          path: extracted/**/app/build/outputs/apk/debug/*.apk
+          name: SF2Player-v0.9.3-MIDI-Presets-ARM64-apk
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 14
