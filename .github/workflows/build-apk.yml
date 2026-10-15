@@ -1,253 +1,69 @@
-name: Build SF2 Player v0.9.3 MIDI Presets ARM64
+name: Compilar SF2 Player
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
     paths:
-      - 'SF2Player_v0.9.3_MIDI_Presets_ARM64.zip'
+      - 'SF2Player_Com_Audio_Experimental.zip'
       - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    name: Gerar APK Android
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout repository
+      - name: Baixar arquivos do repositorio
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            unzip git cmake ninja-build build-essential file
-
-      - name: Extract SF2 Player project
-        shell: bash
-        run: |
-          set -e
-
-          ZIP_FILE="SF2Player_v0.9.3_MIDI_Presets_ARM64.zip"
-
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERRO: ZIP do projeto não encontrado."
-            exit 1
-          fi
-
-          mkdir -p extracted
-          unzip -q "$ZIP_FILE" -d extracted
-
-          SETTINGS="$(find extracted -type f \
-            \( -name settings.gradle.kts -o -name settings.gradle \) \
-            -print -quit)"
-
-          if [ -z "$SETTINGS" ]; then
-            echo "ERRO: projeto Gradle não encontrado."
-            exit 1
-          fi
-
-          PROJECT_DIR="$(dirname "$SETTINGS")"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-          echo "Projeto localizado em: $PROJECT_DIR"
-
-      - name: Set up Java
+      - name: Configurar Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.2.12479018 cmake;3.22.1'
-          accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: false
-
-      - name: Set up Gradle
+      - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.5.0'
+          gradle-version: '8.13'
 
-      - name: Configure Android NDK
-        shell: bash
+      - name: Instalar ferramentas Android
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar componentes do Android SDK
         run: |
-          set -e
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          yes | sdkmanager --licenses
 
-          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+      - name: Extrair projeto
+        run: |
+          mkdir -p extraido
+          unzip -o SF2Player_Com_Audio_Experimental.zip -d extraido
+          echo "Conteudo extraido:"
+          find extraido -maxdepth 4 -type f | head -200
 
-          if [ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]; then
-            echo "ERRO: Android NDK não encontrado."
+      - name: Localizar projeto Android
+        id: projeto
+        run: |
+          PROJECT_DIR="$(find extraido -type f -name settings.gradle -o -name settings.gradle.kts | head -1)"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERRO: settings.gradle ou settings.gradle.kts nao encontrado."
             exit 1
           fi
+          PROJECT_DIR="$(dirname "$PROJECT_DIR")"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Projeto encontrado em: $PROJECT_DIR"
 
-          echo "ANDROID_NDK=$NDK" >> "$GITHUB_ENV"
+      - name: Compilar APK Debug
+        working-directory: ${{ steps.projeto.outputs.dir }}
+        run: gradle --no-daemon assembleDebug
 
-      - name: Download FluidSynth Android source
-        run: |
-          set -e
-
-          git clone --depth 1 \
-            https://github.com/VolcanoMobile/fluidsynth-android.git \
-            fluidsynth-src
-
-      - name: Build FluidSynth for Android ARM64
-        shell: bash
-        run: |
-          set -e
-
-          cmake -S fluidsynth-src -B fluidsynth-build \
-            -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-21 \
-            -DANDROID_STL=c++_shared \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$PWD/fluidsynth-install" \
-            -DBUILD_SHARED_LIBS=ON \
-            -Denable-alsa=OFF \
-            -Denable-pulseaudio=OFF \
-            -Denable-jack=OFF \
-            -Denable-dbus=OFF \
-            -Denable-readline=OFF \
-            -Denable-ladspa=OFF \
-            -Denable-aufile=OFF \
-            -Denable-sdl2=OFF \
-            -Denable-oss=OFF \
-            -Denable-libsndfile=OFF
-
-          cmake --build fluidsynth-build --parallel 2
-          cmake --install fluidsynth-build
-
-      - name: Copy FluidSynth library, C++ runtime and headers
-        shell: bash
-        run: |
-          set -e
-
-          CPP_DIR="$PROJECT_DIR/app/src/main/cpp"
-          JNI_DIR="$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a"
-          INCLUDE_DIR="$CPP_DIR/fluidsynth/include"
-
-          mkdir -p "$JNI_DIR"
-          mkdir -p "$INCLUDE_DIR"
-
-          # Localiza a biblioteca FluidSynth compilada.
-          LIBRARY="$(find -L fluidsynth-build fluidsynth-install \
-            -type f -name 'libfluidsynth.so' -print -quit)"
-
-          if [ -z "$LIBRARY" ]; then
-            LIBRARY="$(find -L fluidsynth-build fluidsynth-install \
-              -type f -name 'libfluidsynth.so.*' -print -quit)"
-          fi
-
-          if [ -z "$LIBRARY" ]; then
-            echo "ERRO: libfluidsynth.so não encontrada."
-            find fluidsynth-build fluidsynth-install \
-              -iname '*fluidsynth*' || true
-            exit 1
-          fi
-
-          cp "$LIBRARY" "$JNI_DIR/libfluidsynth.so"
-
-          # Inclui o runtime C++ exigido por FluidSynth.
-          CXX_SHARED="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
-
-          if [ ! -f "$CXX_SHARED" ]; then
-            echo "ERRO: libc++_shared.so não encontrada."
-            find "$ANDROID_NDK" -type f \
-              -name libc++_shared.so || true
-            exit 1
-          fi
-
-          cp "$CXX_SHARED" "$JNI_DIR/libc++_shared.so"
-
-          # Localiza e copia os cabeçalhos do FluidSynth.
-          HEADER_FILE="$(find fluidsynth-src fluidsynth-install \
-            -type f -name fluidsynth.h -print -quit)"
-
-          if [ -z "$HEADER_FILE" ]; then
-            echo "ERRO: fluidsynth.h não encontrado."
-            find fluidsynth-src fluidsynth-install \
-              -iname '*fluidsynth*' || true
-            exit 1
-          fi
-
-          HEADER_ROOT="$(dirname "$HEADER_FILE")"
-
-          cp "$HEADER_FILE" "$INCLUDE_DIR/fluidsynth.h"
-
-          # Copia os cabeçalhos auxiliares mantendo a estrutura.
-          if [ -d "$HEADER_ROOT/fluidsynth" ]; then
-            cp -R "$HEADER_ROOT/fluidsynth" "$INCLUDE_DIR/"
-          fi
-
-          echo "Bibliotecas nativas copiadas:"
-          ls -lh "$JNI_DIR"
-
-          echo "Cabeçalho principal:"
-          ls -lh "$INCLUDE_DIR/fluidsynth.h"
-
-          file "$JNI_DIR/libfluidsynth.so"
-          file "$JNI_DIR/libc++_shared.so"
-
-      - name: Verify native files
-        shell: bash
-        run: |
-          set -e
-
-          JNI_DIR="$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a"
-          HEADER="$PROJECT_DIR/app/src/main/cpp/fluidsynth/include/fluidsynth.h"
-
-          for LIB in \
-            "$JNI_DIR/libfluidsynth.so" \
-            "$JNI_DIR/libc++_shared.so"; do
-            if [ ! -f "$LIB" ]; then
-              echo "ERRO: biblioteca ausente: $LIB"
-              exit 1
-            fi
-          done
-
-          if [ ! -f "$HEADER" ]; then
-            echo "ERRO: fluidsynth.h não encontrado no caminho esperado."
-            exit 1
-          fi
-
-          echo "Arquivos nativos obrigatórios encontrados."
-
-      - name: Build SF2 Player APK
-        shell: bash
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          set -e
-
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
-            ./gradlew --no-daemon clean assembleDebug
-          else
-            gradle --no-daemon clean assembleDebug
-          fi
-
-      - name: Verify APK
-        shell: bash
-        run: |
-          set -e
-
-          APK="$(find "$PROJECT_DIR/app/build/outputs/apk/debug" \
-            -maxdepth 1 -type f -name '*.apk' -print -quit)"
-
-          if [ -z "$APK" ]; then
-            echo "ERRO: APK não foi gerado."
-            exit 1
-          fi
-
-          echo "APK gerado:"
-          ls -lh "$APK"
-
-      - name: Upload APK
+      - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: SF2Player-v0.9.3-MIDI-Presets-ARM64-apk
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          name: SF2-Player-APK
+          path: extraido/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 14
