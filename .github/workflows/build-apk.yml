@@ -31,13 +31,17 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Configurar Android SDK
+      - name: Configurar Android SDK e NDK
         run: |
+          set -euo pipefail
+
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
 
-          SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+          SDKMANAGER="$(find "$SDK/cmdline-tools" \
+            -type f -name sdkmanager 2>/dev/null \
+            | sort -V | tail -n 1)"
 
           if [ -z "$SDKMANAGER" ]; then
             echo "ERRO: sdkmanager nao encontrado."
@@ -49,31 +53,42 @@ jobs:
           "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;android-36" \
-            "build-tools;36.0.0"
+            "build-tools;36.0.0" \
+            "ndk;27.2.12479018"
 
       - name: Verificar ZIP
         run: |
-          if [ ! -f "SF2Player_v0.9.4_Sem_Teclado_Virtual_JVM17_CORRIGIDO.zip" ]; then
-            echo "ERRO: ZIP corrigido nao encontrado na raiz do repositorio."
+          set -euo pipefail
+
+          ZIP="SF2Player_v0.9.4_Sem_Teclado_Virtual_JVM17_CORRIGIDO.zip"
+
+          if [ ! -f "$ZIP" ]; then
+            echo "ERRO: ZIP nao encontrado na raiz do repositorio."
             ls -la
             exit 1
           fi
 
       - name: Extrair projeto
         run: |
+          set -euo pipefail
           mkdir -p extraido
-          unzip -o SF2Player_v0.9.4_Sem_Teclado_Virtual_JVM17_CORRIGIDO.zip -d extraido
+
+          unzip -o \
+            SF2Player_v0.9.4_Sem_Teclado_Virtual_JVM17_CORRIGIDO.zip \
+            -d extraido
 
       - name: Localizar projeto Android
         id: projeto
         run: |
+          set -euo pipefail
+
           SETTINGS="$(find extraido -type f \( \
             -name settings.gradle -o \
             -name settings.gradle.kts \
           \) -print -quit)"
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERRO: settings.gradle ou settings.gradle.kts nao encontrado."
+            echo "ERRO: projeto Gradle nao encontrado."
             find extraido -maxdepth 5 -type f
             exit 1
           fi
@@ -82,7 +97,7 @@ jobs:
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Projeto encontrado: $PROJECT_DIR"
 
-      - name: Preparar bibliotecas e cabecalhos FluidSynth
+      - name: Preparar FluidSynth e runtime C++
         working-directory: ${{ steps.projeto.outputs.dir }}
         run: |
           set -euo pipefail
@@ -97,34 +112,74 @@ jobs:
 
           SOURCE="/tmp/fluidsynth-kmp/libs/android/arm64-v8a"
           HEADERS="/tmp/fluidsynth-kmp/libs/include"
+
           LIB_DEST="app/src/main/jniLibs/arm64-v8a"
           HEADER_DEST="app/src/main/cpp/fluidsynth/include"
 
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+
+          CXX_RUNTIME="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
+
           if [ ! -s "$SOURCE/libfluidsynth.so" ]; then
-            echo "ERRO: libfluidsynth.so nao foi encontrada."
-            find "$SOURCE" -maxdepth 1 -type f 2>/dev/null || true
+            echo "ERRO: libfluidsynth.so nao encontrada."
+            ls -la "$SOURCE" || true
             exit 1
           fi
 
           if [ ! -s "$HEADERS/fluidsynth.h" ]; then
-            echo "ERRO: fluidsynth.h nao foi encontrado."
-            find "$HEADERS" -maxdepth 2 -type f 2>/dev/null || true
+            echo "ERRO: fluidsynth.h nao encontrado."
+            exit 1
+          fi
+
+          if [ ! -s "$CXX_RUNTIME" ]; then
+            echo "ERRO: libc++_shared.so nao encontrada no NDK."
+            find "$NDK" -name libc++_shared.so -print
             exit 1
           fi
 
           mkdir -p "$LIB_DEST" "$HEADER_DEST"
+
           cp "$SOURCE"/*.so "$LIB_DEST/"
+          cp "$CXX_RUNTIME" "$LIB_DEST/libc++_shared.so"
           cp -R "$HEADERS"/. "$HEADER_DEST"/
 
-          echo "Bibliotecas nativas preparadas:"
+          echo "Bibliotecas nativas incluídas:"
           ls -lh "$LIB_DEST"
 
-          echo "Cabecalho principal instalado:"
-          ls -lh "$HEADER_DEST/fluidsynth.h"
+          test -s "$LIB_DEST/libfluidsynth.so"
+          test -s "$LIB_DEST/libsf2native.so"
+          test -s "$LIB_DEST/libc++_shared.so"
+
+          echo "Runtime C++ verificado."
 
       - name: Compilar APK
         working-directory: ${{ steps.projeto.outputs.dir }}
-        run: gradle --no-daemon assembleDebug
+        run: |
+          set -euo pipefail
+          gradle --no-daemon assembleDebug
+
+      - name: Verificar APK e biblioteca C++
+        working-directory: ${{ steps.projeto.outputs.dir }}
+        run: |
+          set -euo pipefail
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -s "$APK" ]; then
+            echo "ERRO: APK nao foi gerado."
+            exit 1
+          fi
+
+          unzip -l "$APK" | grep -F \
+            "lib/arm64-v8a/libc++_shared.so"
+
+          unzip -l "$APK" | grep -F \
+            "lib/arm64-v8a/libfluidsynth.so"
+
+          unzip -l "$APK" | grep -F \
+            "lib/arm64-v8a/libsf2native.so"
+
+          echo "APK gerado e bibliotecas essenciais verificadas."
 
       - name: Publicar APK
         uses: actions/upload-artifact@v4
