@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'SF2Player_Com_Audio_Experimental.zip'
+      - 'SF2Player_v0.9.4_Sem_Teclado_Virtual.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -30,38 +31,70 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Instalar ferramentas Android
-        uses: android-actions/setup-android@v3
-
-      - name: Instalar componentes do Android SDK
+      - name: Configurar Android SDK
         run: |
-          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-          yes | sdkmanager --licenses
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERRO: sdkmanager nao encontrado."
+            exit 1
+          fi
+
+          echo "SDK encontrado em: $SDK"
+          echo "Usando: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Localizar arquivo ZIP do projeto
+        id: projeto_zip
+        run: |
+          if [ -f "SF2Player_Com_Audio_Experimental.zip" ]; then
+            echo "zip=SF2Player_Com_Audio_Experimental.zip" >> "$GITHUB_OUTPUT"
+          elif [ -f "SF2Player_v0.9.4_Sem_Teclado_Virtual.zip" ]; then
+            echo "zip=SF2Player_v0.9.4_Sem_Teclado_Virtual.zip" >> "$GITHUB_OUTPUT"
+          else
+            echo "ERRO: nenhum ZIP do projeto foi encontrado na raiz."
+            ls -la
+            exit 1
+          fi
 
       - name: Extrair projeto
         run: |
           mkdir -p extraido
-          unzip -o SF2Player_Com_Audio_Experimental.zip -d extraido
-          echo "Conteudo extraido:"
-          find extraido -maxdepth 4 -type f | head -200
+          unzip -o "${{ steps.projeto_zip.outputs.zip }}" -d extraido
 
       - name: Localizar projeto Android
         id: projeto
         run: |
-          PROJECT_DIR="$(find extraido -type f -name settings.gradle -o -name settings.gradle.kts | head -1)"
-          if [ -z "$PROJECT_DIR" ]; then
+          SETTINGS="$(find extraido -type f \( \
+            -name settings.gradle -o \
+            -name settings.gradle.kts \
+          \) -print -quit)"
+
+          if [ -z "$SETTINGS" ]; then
             echo "ERRO: settings.gradle ou settings.gradle.kts nao encontrado."
+            find extraido -maxdepth 5 -type f
             exit 1
           fi
-          PROJECT_DIR="$(dirname "$PROJECT_DIR")"
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Projeto encontrado em: $PROJECT_DIR"
 
-      - name: Compilar APK Debug
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Projeto encontrado: $PROJECT_DIR"
+
+      - name: Compilar APK
         working-directory: ${{ steps.projeto.outputs.dir }}
         run: gradle --no-daemon assembleDebug
 
-      - name: Disponibilizar APK
+      - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
           name: SF2-Player-APK
