@@ -82,7 +82,7 @@ jobs:
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Projeto encontrado: $PROJECT_DIR"
 
-      - name: Obter bibliotecas FluidSynth ARM64
+      - name: Preparar bibliotecas e cabecalhos FluidSynth
         working-directory: ${{ steps.projeto.outputs.dir }}
         run: |
           set -euo pipefail
@@ -92,24 +92,35 @@ jobs:
             /tmp/fluidsynth-kmp
 
           git -C /tmp/fluidsynth-kmp sparse-checkout set \
-            libs/android/arm64-v8a
+            libs/android/arm64-v8a \
+            libs/include
 
           SOURCE="/tmp/fluidsynth-kmp/libs/android/arm64-v8a"
-          DEST="app/src/main/jniLibs/arm64-v8a"
+          HEADERS="/tmp/fluidsynth-kmp/libs/include"
+          LIB_DEST="app/src/main/jniLibs/arm64-v8a"
+          HEADER_DEST="app/src/main/cpp/fluidsynth/include"
 
           if [ ! -s "$SOURCE/libfluidsynth.so" ]; then
-            echo "ERRO: libfluidsynth.so nao foi encontrada na origem."
+            echo "ERRO: libfluidsynth.so nao foi encontrada."
             find "$SOURCE" -maxdepth 1 -type f 2>/dev/null || true
             exit 1
           fi
 
-          mkdir -p "$DEST"
-          cp "$SOURCE"/*.so "$DEST/"
+          if [ ! -s "$HEADERS/fluidsynth.h" ]; then
+            echo "ERRO: fluidsynth.h nao foi encontrado."
+            find "$HEADERS" -maxdepth 2 -type f 2>/dev/null || true
+            exit 1
+          fi
+
+          mkdir -p "$LIB_DEST" "$HEADER_DEST"
+          cp "$SOURCE"/*.so "$LIB_DEST/"
+          cp -R "$HEADERS"/. "$HEADER_DEST"/
 
           echo "Bibliotecas nativas preparadas:"
-          ls -lh "$DEST"
+          ls -lh "$LIB_DEST"
 
-          test -s "$DEST/libfluidsynth.so"
+          echo "Cabecalho principal instalado:"
+          ls -lh "$HEADER_DEST/fluidsynth.h"
 
       - name: Compilar APK
         working-directory: ${{ steps.projeto.outputs.dir }}
