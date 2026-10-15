@@ -4,8 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_Com_Audio_Experimental.zip'
-      - 'SF2Player_v0.9.4_Sem_Teclado_Virtual.zip'
+      - 'SF2Player_v0.9.4_Sem_Teclado_Virtual_JVM17.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -33,19 +32,16 @@ jobs:
 
       - name: Configurar Android SDK
         run: |
-          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
-
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
           SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
 
           if [ -z "$SDKMANAGER" ]; then
             echo "ERRO: sdkmanager nao encontrado."
             exit 1
           fi
-
-          echo "SDK encontrado em: $SDK"
-          echo "Usando: $SDKMANAGER"
 
           yes | "$SDKMANAGER" --licenses || true
 
@@ -54,23 +50,10 @@ jobs:
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Localizar arquivo ZIP do projeto
-        id: projeto_zip
-        run: |
-          if [ -f "SF2Player_Com_Audio_Experimental.zip" ]; then
-            echo "zip=SF2Player_Com_Audio_Experimental.zip" >> "$GITHUB_OUTPUT"
-          elif [ -f "SF2Player_v0.9.4_Sem_Teclado_Virtual.zip" ]; then
-            echo "zip=SF2Player_v0.9.4_Sem_Teclado_Virtual.zip" >> "$GITHUB_OUTPUT"
-          else
-            echo "ERRO: nenhum ZIP do projeto foi encontrado na raiz."
-            ls -la
-            exit 1
-          fi
-
       - name: Extrair projeto
         run: |
           mkdir -p extraido
-          unzip -o "${{ steps.projeto_zip.outputs.zip }}" -d extraido
+          unzip -o SF2Player_v0.9.4_Sem_Teclado_Virtual_JVM17.zip -d extraido
 
       - name: Localizar projeto Android
         id: projeto
@@ -81,7 +64,7 @@ jobs:
           \) -print -quit)"
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERRO: settings.gradle ou settings.gradle.kts nao encontrado."
+            echo "ERRO: arquivo settings.gradle nao encontrado."
             find extraido -maxdepth 5 -type f
             exit 1
           fi
