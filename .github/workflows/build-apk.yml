@@ -64,10 +64,12 @@ jobs:
           ZIP="SF2Player_v0.9.4_Sem_Teclado_Virtual_JVM17_CORRIGIDO.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "ERRO: ZIP nao encontrado na raiz."
+            echo "ERRO: ZIP nao encontrado na raiz do repositorio."
             ls -la
             exit 1
           fi
+
+          unzip -t "$ZIP"
 
       - name: Extrair projeto
         run: |
@@ -90,15 +92,15 @@ jobs:
           \) -print -quit)"
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERRO: arquivo settings.gradle nao encontrado."
+            echo "ERRO: settings.gradle nao encontrado."
             find extraido -maxdepth 5 -type f
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-          echo "Projeto: $PROJECT_DIR"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Projeto encontrado: $PROJECT_DIR"
 
       - name: Preparar bibliotecas FluidSynth
         working-directory: ${{ steps.projeto.outputs.dir }}
@@ -158,10 +160,9 @@ jobs:
         working-directory: ${{ steps.projeto.outputs.dir }}
         run: |
           set -euo pipefail
-
           gradle --no-daemon assembleDebug
 
-      - name: Verificar APK e bibliotecas compiladas
+      - name: Verificar APK e bibliotecas
         working-directory: ${{ steps.projeto.outputs.dir }}
         run: |
           set -euo pipefail
@@ -173,8 +174,6 @@ jobs:
             find . -path '*build/outputs/apk*' -type f
             exit 1
           fi
-
-          echo "Verificando bibliotecas dentro do APK..."
 
           unzip -l "$APK" > /tmp/apk-files.txt
 
@@ -191,7 +190,7 @@ jobs:
             echo "OK: $LIB"
           done
 
-          echo "Verificacao concluida."
+          echo "APK e bibliotecas verificados."
           ls -lh "$APK"
 
       - name: Publicar APK
