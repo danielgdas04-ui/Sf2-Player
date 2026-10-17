@@ -54,6 +54,30 @@ jobs:
             exit 1
           fi
 
+      - name: Corrigir alvos JVM para Java 17
+        run: |
+          FILE="extraido/SF2Player_Projeto/app/build.gradle.kts"
+          cat >> "$FILE" <<'GRADLE'
+
+          // Manter Java e Kotlin em JVM 17.
+          android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          kotlin {
+              jvmToolchain(17)
+          }
+          GRADLE
+
+          echo "Configuracao JVM aplicada:"
+          tail -n 24 "$FILE"
+
       - name: Instalar componentes Android
         run: |
           sdkmanager --install \
@@ -64,18 +88,15 @@ jobs:
 
       - name: Compilar APK
         working-directory: extraido/SF2Player_Projeto
-        run: |
-          gradle --no-daemon --stacktrace assembleDebug
+        run: gradle --no-daemon --stacktrace assembleDebug
 
       - name: Verificar APK
         run: |
           APK="extraido/SF2Player_Projeto/app/build/outputs/apk/debug/app-debug.apk"
-
           if [ ! -f "$APK" ]; then
             echo "ERRO: APK nao foi gerado."
             exit 1
           fi
-
           ls -lh "$APK"
 
       - name: Disponibilizar APK
