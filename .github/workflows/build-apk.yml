@@ -26,6 +26,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
       - name: Configurar Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -34,7 +39,7 @@ jobs:
       - name: Verificar arquivo do projeto
         run: |
           if [ ! -f "SF2Player_Com_Audio_Experimental.zip" ]; then
-            echo "ERRO: SF2Player_Com_Audio_Experimental.zip nao encontrado na raiz."
+            echo "ERRO: ZIP do projeto nao encontrado na raiz."
             exit 1
           fi
 
@@ -44,12 +49,12 @@ jobs:
           unzip -o SF2Player_Com_Audio_Experimental.zip -d extraido
 
           if [ ! -f "extraido/SF2Player_Projeto/app/build.gradle.kts" ]; then
-            echo "ERRO: estrutura do projeto nao encontrada no ZIP."
+            echo "ERRO: estrutura do projeto nao encontrada."
             find extraido -maxdepth 5 -type f
             exit 1
           fi
 
-      - name: Configurar Android SDK e NDK
+      - name: Instalar componentes Android
         run: |
           sdkmanager --install \
             "platforms;android-36" \
@@ -59,15 +64,18 @@ jobs:
 
       - name: Compilar APK
         working-directory: extraido/SF2Player_Projeto
-        run: gradle --no-daemon --stacktrace assembleDebug
+        run: |
+          gradle --no-daemon --stacktrace assembleDebug
 
-      - name: Verificar APK gerado
+      - name: Verificar APK
         run: |
           APK="extraido/SF2Player_Projeto/app/build/outputs/apk/debug/app-debug.apk"
+
           if [ ! -f "$APK" ]; then
             echo "ERRO: APK nao foi gerado."
             exit 1
           fi
+
           ls -lh "$APK"
 
       - name: Disponibilizar APK
