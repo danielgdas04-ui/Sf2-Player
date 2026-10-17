@@ -31,52 +31,69 @@ jobs:
         with:
           packages: 'platform-tools'
 
-      - name: Configurar Gradle 8.13
+      - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Verificar arquivo do projeto
+      - name: Verificar ZIP
         run: |
-          if [ ! -f "SF2Player_Com_Audio_Experimental.zip" ]; then
-            echo "ERRO: ZIP do projeto nao encontrado na raiz."
+          test -f SF2Player_Com_Audio_Experimental.zip || {
+            echo "ERRO: ZIP do projeto nao encontrado."
             exit 1
-          fi
+          }
 
       - name: Extrair projeto
         run: |
           mkdir -p extraido
           unzip -o SF2Player_Com_Audio_Experimental.zip -d extraido
 
-          if [ ! -f "extraido/SF2Player_Projeto/app/build.gradle.kts" ]; then
+          test -f extraido/SF2Player_Projeto/app/build.gradle.kts || {
             echo "ERRO: estrutura do projeto nao encontrada."
             find extraido -maxdepth 5 -type f
             exit 1
-          fi
+          }
 
-      - name: Corrigir alvos JVM para Java 17
+      - name: Corrigir import do Compose
         run: |
-          FILE="extraido/SF2Player_Projeto/app/build.gradle.kts"
-          cat >> "$FILE" <<'GRADLE'
+          python3 <<'PY'
+          from pathlib import Path
+          import re
 
-          // Manter Java e Kotlin em JVM 17.
-          android {
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-          }
+          path = Path(
+              "extraido/SF2Player_Projeto/app/src/main/java/"
+              "br/com/sf2player/MainActivity.kt"
+          )
 
-          kotlin {
-              jvmToolchain(17)
-          }
-          GRADLE
+          if not path.exists():
+              raise SystemExit(f"Arquivo nao encontrado: {path}")
 
-          echo "Configuracao JVM aplicada:"
-          tail -n 24 "$FILE"
+          source = path.read_text(encoding="utf-8")
+          correct = (
+              "import androidx.compose.foundation.gestures."
+              "waitForUpOrCancellation"
+          )
+
+          source = re.sub(
+              r"(?m)^import\s+[\w.]*waitForUpOrCancellation\s*$",
+              correct,
+              source
+          )
+
+          if correct not in source:
+              source = re.sub(
+                  r"(?m)^package [^\n]+\n",
+                  lambda match: match.group(0) + "\n" + correct + "\n",
+                  source,
+                  count=1
+              )
+
+          path.write_text(source, encoding="utf-8")
+          print("Import verificado:")
+          for line in source.splitlines():
+              if "waitForUpOrCancellation" in line:
+                  print(line)
+          PY
 
       - name: Instalar componentes Android
         run: |
@@ -88,15 +105,18 @@ jobs:
 
       - name: Compilar APK
         working-directory: extraido/SF2Player_Projeto
-        run: gradle --no-daemon --stacktrace assembleDebug
+        run: |
+          gradle --no-daemon --stacktrace assembleDebug
 
       - name: Verificar APK
         run: |
           APK="extraido/SF2Player_Projeto/app/build/outputs/apk/debug/app-debug.apk"
+
           if [ ! -f "$APK" ]; then
             echo "ERRO: APK nao foi gerado."
             exit 1
           fi
+
           ls -lh "$APK"
 
       - name: Disponibilizar APK
