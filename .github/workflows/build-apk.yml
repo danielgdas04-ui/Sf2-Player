@@ -42,12 +42,15 @@ jobs:
           test -f "SF2Player_Com_Audio_Experimental.zip"
           mkdir -p extraido
           unzip -q "SF2Player_Com_Audio_Experimental.zip" -d extraido
+
           test -f "extraido/SF2Player_Projeto/app/build.gradle.kts"
           test -f "extraido/SF2Player_Projeto/app/src/main/java/br/com/sf2player/MainActivity.kt"
 
       - name: Corrigir compatibilidade Java e Kotlin
         shell: bash
         run: |
+          set -euo pipefail
+
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -58,17 +61,26 @@ jobs:
 
           gradle = gradle_file.read_text(encoding="utf-8")
 
-          imports = []
-          if "import org.gradle.api.tasks.compile.JavaCompile" not in gradle:
-              imports.append("import org.gradle.api.tasks.compile.JavaCompile")
-          if "import org.jetbrains.kotlin.gradle.tasks.KotlinCompile" not in gradle:
-              imports.append("import org.jetbrains.kotlin.gradle.tasks.KotlinCompile")
+          required_imports = [
+              "import org.gradle.api.tasks.compile.JavaCompile",
+              "import org.jetbrains.kotlin.gradle.tasks.KotlinCompile",
+              "import org.jetbrains.kotlin.gradle.dsl.JvmTarget",
+          ]
 
-          if imports:
-              gradle = "\n".join(imports) + "\n" + gradle
+          missing = [
+              item for item in required_imports
+              if item not in gradle
+          ]
 
-          if "SF2PLAYER_CI_JVM17_FIX" not in gradle:
-              gradle += """
+          if missing:
+              gradle = "\n".join(missing) + "\n" + gradle
+
+          # Remove only the previous CI block if present.
+          marker = "// SF2PLAYER_CI_JVM17_FIX"
+          if marker in gradle:
+              gradle = gradle.split(marker)[0].rstrip() + "\n"
+
+          gradle += """
 
           // SF2PLAYER_CI_JVM17_FIX
           tasks.withType<JavaCompile>().configureEach {
@@ -77,13 +89,17 @@ jobs:
           }
 
           tasks.withType<KotlinCompile>().configureEach {
-              kotlinOptions.jvmTarget = "17"
+              compilerOptions {
+                  jvmTarget.set(JvmTarget.JVM_17)
+              }
           }
           """
 
           gradle_file.write_text(gradle, encoding="utf-8")
 
           source = main_file.read_text(encoding="utf-8")
+
+          # Correct the import used by the Compose gesture code.
           source = re.sub(
               r"^import\s+[^\n]*waitForUpOrCancellation[^\n]*\n",
               "",
@@ -98,15 +114,18 @@ jobs:
           if correct_import not in source:
               lines = source.splitlines()
               last_import = max(
-                  (i for i, line in enumerate(lines)
-                   if line.startswith("import ")),
+                  (
+                      i for i, line in enumerate(lines)
+                      if line.startswith("import ")
+                  ),
                   default=-1,
               )
               lines.insert(last_import + 1, correct_import)
               source = "\n".join(lines) + "\n"
 
           main_file.write_text(source, encoding="utf-8")
-          print("Correções de compilação aplicadas.")
+
+          print("Compatibilidade Java/Kotlin corrigida para Java 17.")
           PY
 
       - name: Instalar componentes Android
@@ -114,6 +133,7 @@ jobs:
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
+
           sdkmanager \
             "platforms;android-36" \
             "build-tools;36.0.0" \
@@ -125,7 +145,9 @@ jobs:
         run: |
           set -euo pipefail
           cd extraido/SF2Player_Projeto
+
           gradle --no-daemon --stacktrace assembleDebug
+
           test -f app/build/outputs/apk/debug/app-debug.apk
 
       - name: Disponibilizar APK para download
