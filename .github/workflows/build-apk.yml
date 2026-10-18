@@ -1,3 +1,4 @@
+
 name: Compilar SF2 Player
 
 on:
@@ -49,6 +50,28 @@ jobs:
           test -f "extraido/SF2Player_Projeto/app/src/main/java/br/com/sf2player/MainActivity.kt"
           test -f "extraido/SF2Player_Projeto/app/src/main/cpp/sf2native.c"
 
+      - name: Instalar componentes Android
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_SDK_ROOT/cmdline-tools" -name sdkmanager -type f | sort | tail -n 1)"
+          fi
+
+          test -x "$SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
+
       - name: Obter TinySoundFont
         shell: bash
         run: |
@@ -64,7 +87,7 @@ jobs:
           fi
 
           test -s "$CPP_DIR/tsf.h"
-          echo "Cabeçalho TinySoundFont encontrado."
+          echo "TinySoundFont encontrado:"
           ls -lh "$CPP_DIR/tsf.h"
 
       - name: Corrigir compatibilidade Java e Kotlin
@@ -80,4 +103,91 @@ jobs:
           gradle_file = root / "app/build.gradle.kts"
           main_file = root / "app/src/main/java/br/com/sf2player/MainActivity.kt"
 
-          gradle = grad
+          if not gradle_file.is_file():
+              raise SystemExit(f"Arquivo nao encontrado: {gradle_file}")
+
+          if not main_file.is_file():
+              raise SystemExit(f"Arquivo nao encontrado: {main_file}")
+
+          gradle = gradle_file.read_text(encoding="utf-8")
+
+          marker = "// SF2PLAYER_CI_JVM17_FIX"
+
+          if marker in gradle:
+              gradle = gradle.split(marker)[0].rstrip()
+
+          gradle += """
+
+          // SF2PLAYER_CI_JVM17_FIX
+          android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+          }
+
+          tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
+              sourceCompatibility = "17"
+              targetCompatibility = "17"
+          }
+
+          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+              compilerOptions {
+                  jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+              }
+          }
+          """
+
+          gradle_file.write_text(gradle.rstrip() + "\n", encoding="utf-8")
+
+          source = main_file.read_text(encoding="utf-8")
+
+          source = re.sub(
+              r"(?m)^import\s+[\w.]+\.waitForUpOrCancellation\s*\n",
+              "",
+              source
+          )
+
+          if "waitForUpOrCancellation" in source:
+              correct_import = (
+                  "import androidx.compose.foundation.gestures."
+                  "waitForUpOrCancellation"
+              )
+
+              if correct_import not in source:
+                  lines = source.splitlines()
+                  last_import = max(
+                      (i for i, line in enumerate(lines)
+                       if line.startswith("import ")),
+                      default=-1
+                  )
+                  lines.insert(last_import + 1, correct_import)
+                  source = "\n".join(lines) + "\n"
+
+          main_file.write_text(source, encoding="utf-8")
+
+          print("Configuracao Java/Kotlin 17 aplicada.")
+          print("Verificacao do MainActivity concluida.")
+          PY
+
+      - name: Compilar APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd extraido/SF2Player_Projeto
+
+          gradle --no-daemon --stacktrace assembleDebug
+
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+          echo "APK compilado:"
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: SF2-Player-APK
+          path: extraido/SF2Player_Projeto/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
