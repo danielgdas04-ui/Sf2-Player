@@ -1,11 +1,10 @@
-
 name: Compilar SF2 Player
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'SF2Player_Com_Audio_Experimental.zip'
+      - 'SF2Player_v0.9.4_CORRIGIDO_ESTABILIDADE_FADERS-2.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -41,10 +40,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -f "SF2Player_Com_Audio_Experimental.zip"
+          ZIP_FILE="SF2Player_v0.9.4_CORRIGIDO_ESTABILIDADE_FADERS-2.zip"
+
+          test -f "$ZIP_FILE"
 
           mkdir -p extraido
-          unzip -q "SF2Player_Com_Audio_Experimental.zip" -d extraido
+          unzip -q "$ZIP_FILE" -d extraido
 
           test -f "extraido/SF2Player_Projeto/app/build.gradle.kts"
           test -f "extraido/SF2Player_Projeto/app/src/main/java/br/com/sf2player/MainActivity.kt"
@@ -87,6 +88,7 @@ jobs:
           fi
 
           test -s "$CPP_DIR/tsf.h"
+
           echo "TinySoundFont encontrado:"
           ls -lh "$CPP_DIR/tsf.h"
 
@@ -185,7 +187,7 @@ jobs:
           ls -lh app/build/outputs/apk/debug/app-debug.apk
 
       - name: Disponibilizar APK
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: SF2-Player-APK
           path: extraido/SF2Player_Projeto/app/build/outputs/apk/debug/app-debug.apk
